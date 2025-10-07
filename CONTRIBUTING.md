@@ -6,6 +6,84 @@ Thank you for your interest in contributing to NovoMD! This document provides gu
 
 Be respectful, inclusive, and professional in all interactions.
 
+## Scientific Integrity Guidelines
+
+### No Mock Data Policy
+
+NovoMD is a **scientific computing tool** used for real computational chemistry research. To maintain trust and scientific validity:
+
+**STRICTLY PROHIBITED:**
+- ❌ Mock data generation functions
+- ❌ Random number generators for scientific properties
+- ❌ Simulated/fake calculation results
+- ❌ Placeholder data in API responses
+
+**REQUIRED:**
+- ✅ All molecular properties must be calculated from real 3D structures
+- ✅ Use established scientific libraries (RDKit, numpy, scipy)
+- ✅ Document calculation methods and assumptions
+- ✅ Cite algorithms and force field parameters used
+- ✅ If a calculation isn't implemented, return null/error - never fake it
+
+### Adding New Endpoints
+
+When proposing new endpoints:
+
+1. **Provide Scientific Justification**
+   - What property/calculation does it provide?
+   - What is the scientific use case?
+   - What algorithms/methods will be used?
+
+2. **Show Real Implementation**
+   - No "TODO: implement actual calculation" with mock data
+   - If the full implementation requires external tools (GROMACS, AMBER), document integration requirements
+   - Stub endpoints must return errors, not simulated data
+
+3. **Include Validation**
+   - How will results be validated?
+   - What are known test cases?
+   - Compare with established tools when possible
+
+### Example: Good vs Bad
+
+❌ **BAD - Mock Data:**
+```python
+@app.post("/calculate-logp")
+def calculate_logp(smiles: str):
+    # TODO: implement real calculation
+    return {"logp": random.uniform(0, 5)}
+```
+
+✅ **GOOD - Real Calculation:**
+```python
+@app.post("/calculate-logp")
+def calculate_logp(smiles: str):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise HTTPException(400, "Invalid SMILES")
+    logp = Descriptors.MolLogP(mol)  # RDKit's real calculation
+    return {"logp": round(logp, 2), "method": "Wildman-Crippen"}
+```
+
+✅ **ACCEPTABLE - Not Yet Implemented:**
+```python
+@app.post("/calculate-binding-affinity")
+def calculate_binding_affinity(protein: str, ligand: str):
+    raise HTTPException(
+        501,
+        "Binding affinity requires MD simulation engine integration. "
+        "Please integrate with GROMACS or AMBER for production use."
+    )
+```
+
+### Property Calculation Standards
+
+All molecular properties must:
+- Be derived from actual molecular structures (3D coordinates, topology)
+- Use peer-reviewed algorithms or established software packages
+- Include units in response
+- Document limitations and assumptions
+
 ## How to Contribute
 
 ### Reporting Bugs
