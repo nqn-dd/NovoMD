@@ -105,9 +105,9 @@ Please provide as much information as possible:
 
 ## Known Limitations
 
-1. **Mock Data**: Current implementation uses mock/simulated data for demonstrations. Production deployments should integrate with real molecular dynamics engines.
+1. **Simplified Energy Calculations**: Energy-related properties (conformer_energy, vdw_energy, etc.) use simplified estimation formulas rather than full molecular dynamics simulations. These values are approximations suitable for relative comparisons but should not be used for absolute energy predictions. For production-grade energy calculations, integrate with dedicated MD engines like OpenMM or GROMACS.
 
-2. **Rate Limiting**: Not implemented by default. Users should implement at the proxy level.
+2. **Rate Limiting**: Implemented via slowapi middleware (default: 100 requests/minute). Configure via the `RATE_LIMIT` environment variable for different limits.
 
 3. **HTTPS**: Not configured by default. Users must deploy behind a reverse proxy with SSL/TLS.
 

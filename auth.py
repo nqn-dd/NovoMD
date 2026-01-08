@@ -1,15 +1,20 @@
 """
 Simple API key authentication for NovoMD
 """
+import secrets
 from fastapi import Header, HTTPException
 from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")) -> str:
     """
     Verify API key from request header
+
+    Uses timing-attack resistant comparison to prevent
+    side-channel attacks on API key validation.
 
     Args:
         x_api_key: API key from X-API-Key header
@@ -34,7 +39,8 @@ async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")) -> st
             detail="Server authentication not configured"
         )
 
-    if x_api_key != settings.api_key:
+    # Use timing-attack resistant comparison
+    if not secrets.compare_digest(x_api_key.encode(), settings.api_key.encode()):
         logger.warning(f"Invalid API key attempt: {x_api_key[:8]}...")
         raise HTTPException(
             status_code=403,

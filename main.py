@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
@@ -6,12 +6,13 @@ from datetime import datetime
 import os
 import uuid
 import logging
-import tempfile
-import subprocess
-import json
 import numpy as np
 from scipy.spatial.distance import cdist
-import re
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Import molecular processing libraries
 try:
@@ -39,6 +40,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 # Initialize FastAPI
 app = FastAPI(
     title="NovoMD - Molecular Dynamics Service",
@@ -46,10 +50,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# Add rate limiter to app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware - use configurable origins
+cors_origins = settings.get_cors_origins()
+logger.info(f"CORS allowed origins: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -429,7 +440,7 @@ def calculate_all_molecular_properties(coords: np.ndarray, atoms: List[str],
 # API Endpoints
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
     """Health check endpoint"""
     return {
         "status": "healthy",
@@ -440,45 +451,40 @@ async def health():
     }
 
 @app.get("/status")
-async def status(api_key: str = Depends(verify_api_key)):
+@limiter.limit(settings.rate_limit)
+async def status(request: Request, api_key: str = Depends(verify_api_key)):
     """Service status and capabilities"""
     return {
         "service": "NovoMD",
         "version": "1.0.0",
         "capabilities": {
-            "molecular_dynamics": True,
-            "binding_affinity": True,
-            "conformational_analysis": True,
-            "trajectory_analysis": True,
-            "solvation_studies": True
+            "smiles_to_omd_conversion": True,
+            "pdb_to_omd_conversion": True,
+            "molecular_property_calculation": True,
+            "geometry_analysis": True,
+            "partial_charge_calculation": True,
+            "rdkit_available": RDKIT_AVAILABLE,
+            "openbabel_available": OPENBABEL_AVAILABLE,
         },
         "supported_force_fields": [
-            "amber14",
-            "amber99sb",
-            "charmm36",
-            "opls",
-            "gromos54a7"
+            "AMBER",
+            "CHARMM",
+            "OPLS",
         ],
-        "supported_solvents": [
-            "water",
-            "methanol",
-            "ethanol",
-            "dmso",
-            "chloroform",
-            "vacuum"
+        "property_categories": [
+            "geometry",
+            "energy",
+            "electrostatics",
+            "surface_volume",
+            "atom_counts",
+            "visualization",
         ],
-        "analysis_methods": [
-            "MM-GBSA",
-            "MM-PBSA",
-            "FEP",
-            "TI",
-            "LIE"
-        ]
     }
 
 
 @app.get("/force-fields")
-async def get_force_fields(api_key: str = Depends(verify_api_key)):
+@limiter.limit(settings.rate_limit)
+async def get_force_fields(request: Request, api_key: str = Depends(verify_api_key)):
     """Get available force fields and their descriptions"""
     return {
         "force_fields": [
@@ -517,8 +523,10 @@ async def get_force_fields(api_key: str = Depends(verify_api_key)):
 
 
 @app.post("/smiles-to-omd", response_model=OMDFileResponse)
+@limiter.limit(settings.rate_limit)
 async def convert_smiles_to_omd(
-    request: SMILESToOMDRequest,
+    request: Request,
+    data: SMILESToOMDRequest,
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -537,26 +545,26 @@ async def convert_smiles_to_omd(
     """
     try:
         # Step 1: Convert SMILES to PDB
-        logger.info(f"Converting SMILES to PDB: {request.smiles}")
+        logger.info(f"Converting SMILES to PDB: {data.smiles}")
         pdb_content = smiles_to_pdb(
-            request.smiles,
-            optimize_3d=request.optimize_3d,
-            add_hydrogens=request.add_hydrogens
+            data.smiles,
+            optimize_3d=data.optimize_3d,
+            add_hydrogens=data.add_hydrogens
         )
 
         # Step 2: Convert PDB to OpenMD format
-        logger.info(f"Converting PDB to OpenMD format with {request.force_field} force field")
+        logger.info(f"Converting PDB to OpenMD format with {data.force_field} force field")
         omd_content = pdb_to_omd(
             pdb_content,
-            request.force_field,
-            request.box_size,
-            request.charge_method
+            data.force_field,
+            data.box_size,
+            data.charge_method
         )
 
         # Step 3: Calculate all 32 molecular properties
         if RDKIT_AVAILABLE:
-            mol = Chem.MolFromSmiles(request.smiles)
-            if request.add_hydrogens:
+            mol = Chem.MolFromSmiles(data.smiles)
+            if data.add_hydrogens:
                 mol = Chem.AddHs(mol)
 
             # Extract coordinates from PDB
@@ -567,23 +575,23 @@ async def convert_smiles_to_omd(
 
             # Build complete metadata with all 32+ properties
             metadata = {
-                "smiles": request.smiles,
+                "smiles": data.smiles,
                 "num_atoms": mol.GetNumAtoms(),
                 "num_bonds": mol.GetNumBonds(),
                 "molecular_weight": round(Descriptors.MolWt(mol), 2),
-                "force_field": request.force_field,
-                "box_size": request.box_size,
-                "optimized": request.optimize_3d,
-                "hydrogens_added": request.add_hydrogens,
-                "charge_method": request.charge_method,
+                "force_field": data.force_field,
+                "box_size": data.box_size,
+                "optimized": data.optimize_3d,
+                "hydrogens_added": data.add_hydrogens,
+                "charge_method": data.charge_method,
                 "conversion_timestamp": datetime.now().isoformat(),
                 **properties  # Add all 32 calculated properties
             }
         else:
             metadata = {
-                "smiles": request.smiles,
-                "force_field": request.force_field,
-                "box_size": request.box_size,
+                "smiles": data.smiles,
+                "force_field": data.force_field,
+                "box_size": data.box_size,
                 "conversion_timestamp": datetime.now().isoformat()
             }
 
@@ -601,7 +609,7 @@ async def convert_smiles_to_omd(
         return OMDFileResponse(
             success=False,
             error=str(e),
-            metadata={"smiles": request.smiles}
+            metadata={"smiles": data.smiles}
         )
 
 class Atom2MDRequest(BaseModel):
@@ -610,8 +618,10 @@ class Atom2MDRequest(BaseModel):
     box_size: float = Field(default=30.0, description="Box size in Angstroms")
 
 @app.post("/atom2md")
+@limiter.limit(settings.rate_limit)
 async def atom2md_conversion(
-    request: Atom2MDRequest,
+    request: Request,
+    data: Atom2MDRequest,
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -624,14 +634,14 @@ async def atom2md_conversion(
     - Sets up simulation box
     """
     try:
-        omd_content = pdb_to_omd(request.pdb_content, request.force_field, request.box_size, "gasteiger")
+        omd_content = pdb_to_omd(data.pdb_content, data.force_field, data.box_size, "gasteiger")
 
         return {
             "success": True,
             "omd_content": omd_content,
             "metadata": {
-                "force_field": request.force_field,
-                "box_size": request.box_size,
+                "force_field": data.force_field,
+                "box_size": data.box_size,
                 "conversion_timestamp": datetime.now().isoformat()
             }
         }
@@ -640,7 +650,9 @@ async def atom2md_conversion(
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/force-field-types/{force_field}")
+@limiter.limit(settings.rate_limit)
 async def get_force_field_atom_types(
+    request: Request,
     force_field: str,
     api_key: str = Depends(verify_api_key)
 ):

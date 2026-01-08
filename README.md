@@ -1,7 +1,8 @@
 # NovoMD - Molecular Dynamics API
 
+[![CI](https://github.com/quantnexusai/NovoMD/actions/workflows/ci.yml/badge.svg)](https://github.com/quantnexusai/NovoMD/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com)
 
 Open-source REST API for molecular dynamics simulations, protein-ligand docking, and conformational analysis.
@@ -149,27 +150,71 @@ Environment variables can be set in `.env` file or as system variables:
 | `PORT` | Server port | 8010 |
 | `HOST` | Server host | 0.0.0.0 |
 | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | INFO |
+| `CORS_ORIGINS` | Comma-separated allowed origins, or "*" for all | localhost:3000,localhost:8080 |
+| `RATE_LIMIT` | Rate limit (e.g., "100/minute", "1000/hour") | 100/minute |
 
 ## Development
+
+### Setup Development Environment
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Install pre-commit hooks
+pre-commit install
+```
 
 ### Running Tests
 
 ```bash
-python test_novomd.py
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=main --cov=auth --cov=config --cov-report=term-missing
+```
+
+### Code Quality
+
+```bash
+# Format code
+black .
+isort .
+
+# Lint
+flake8 .
+
+# Type check
+mypy main.py auth.py config.py
+
+# Security scan
+bandit -r . -x ./tests
 ```
 
 ### Code Structure
 
 ```
 NovoMD/
-├── main.py              # FastAPI application and endpoints
-├── config.py            # Configuration management
-├── auth.py              # Authentication middleware
-├── requirements.txt     # Python dependencies
-├── Dockerfile           # Container definition
-├── docker-compose.yml   # Docker Compose configuration
-├── .env.example         # Environment variables template
-└── README.md            # This file
+├── main.py                  # FastAPI application and endpoints
+├── config.py                # Configuration management
+├── auth.py                  # Authentication middleware
+├── requirements.txt         # Python dependencies
+├── requirements-dev.txt     # Development dependencies
+├── pyproject.toml           # Project configuration and tool settings
+├── Dockerfile               # Container definition
+├── docker-compose.yml       # Docker Compose configuration
+├── .env.example             # Environment variables template
+├── .pre-commit-config.yaml  # Pre-commit hooks configuration
+├── CHANGELOG.md             # Version history
+├── tests/                   # Test suite
+│   ├── conftest.py          # Pytest fixtures
+│   ├── test_api.py          # API endpoint tests
+│   └── test_properties.py   # Property calculation tests
+└── .github/
+    └── workflows/
+        └── ci.yml           # CI/CD pipeline
 ```
 
 ## Production Deployment
@@ -224,9 +269,10 @@ spec:
 
 1. **API Key**: Always use a strong, randomly generated API key in production
 2. **HTTPS**: Deploy behind a reverse proxy with SSL/TLS (nginx, Traefik, AWS ALB)
-3. **Rate Limiting**: Implement rate limiting at the proxy level
-4. **Network Security**: Use firewall rules to restrict access
-5. **Updates**: Keep dependencies updated for security patches
+3. **Rate Limiting**: Built-in rate limiting via `RATE_LIMIT` env var (default: 100/minute)
+4. **CORS**: Configure `CORS_ORIGINS` to restrict allowed origins (avoid "*" in production)
+5. **Network Security**: Use firewall rules to restrict access
+6. **Updates**: Keep dependencies updated for security patches
 
 ## Contributing
 
