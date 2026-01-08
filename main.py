@@ -50,7 +50,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="NovoMD - Molecular Dynamics Service",
     description="Open-source molecular dynamics simulation and docking service",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 # Add rate limiter to app

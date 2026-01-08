@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2025-01-08
+
 ### Added
 - Comprehensive test suite with pytest (70%+ coverage target)
 - CI/CD pipeline with GitHub Actions
@@ -60,5 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BioPython 1.81
 - Optional: RDKit, OpenBabel
 
-[Unreleased]: https://github.com/quantnexusai/NovoMD/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/quantnexusai/NovoMD/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/quantnexusai/NovoMD/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/quantnexusai/NovoMD/releases/tag/v1.0.0
