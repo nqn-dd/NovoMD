@@ -1,0 +1,96 @@
+name: Deploy NovoMD to Azure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.py'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - '.github/workflows/deploy-azure.yml'
+  workflow_dispatch:
+
+env:
+  AZURE_CONTAINER_REGISTRY: novoquantnexusacr.azurecr.io
+  IMAGE_NAME: novomd
+  RESOURCE_GROUP: novo-data-rg
+  CONTAINER_APP_NAME: novomd
+  CONTAINER_APP_ENV: novo-services-env
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry
+        run: |
+          az acr login --name novoquantnexusacr
+
+      - name: Build and push image to ACR
+        run: |
+          docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker tag ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy to Azure Container Apps
+        run: |
+          # Check if container app exists
+          EXISTS=$(az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query "name" -o tsv 2>/dev/null || echo "")
+
+          if [ -z "$EXISTS" ]; then
+            echo "Creating new container app (internal)..."
+            az containerapp create \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --environment ${{ env.CONTAINER_APP_ENV }} \
+              --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+              --registry-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+              --registry-username ${{ secrets.ACR_USERNAME }} \
+              --registry-password ${{ secrets.ACR_PASSWORD }} \
+              --target-port 8010 \
+              --ingress internal \
+              --min-replicas 1 \
+              --max-replicas 5 \
+              --cpu 1 \
+              --memory 2Gi \
+              --env-vars \
+                PORT=8010 \
+                NOVOMD_API_KEY=novomd-api-key-2024 \
+                LOG_LEVEL=INFO \
+                CORS_ORIGINS="*"
+          else
+            echo "Updating existing container app..."
+            az containerapp update \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+              --set-env-vars \
+                PORT=8010 \
+                NOVOMD_API_KEY=novomd-api-key-2024 \
+                LOG_LEVEL=INFO \
+                CORS_ORIGINS="*"
+          fi
+
+      - name: Get internal endpoint
+        run: |
+          FQDN=$(az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo ""
+          echo "============================================"
+          echo "NovoMD deployed to Azure!"
+          echo "============================================"
+          echo ""
+          echo "Internal endpoint: https://$FQDN"
+          echo ""
+          echo "To access from quanta-mcp, use:"
+          echo "NOVOMD_URL=https://$FQDN"
+          echo ""
+          echo "API Key: novomd-api-key-2024"
